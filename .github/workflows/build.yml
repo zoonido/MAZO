@@ -1,0 +1,70 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Check the files are in place
+        run: |
+          missing=0
+          for f in CMakeLists.txt source/plugin_processor.cpp source/plugin_processor.h source/plugin_editor.cpp source/plugin_editor.h source/presets.h source/dsp/engine.h source/dsp/whisper_bank.h fonts/BigShouldersDisplay-ExtraBold.ttf fonts/IBMPlexMono-Regular.ttf tests/tests.cpp; do
+            if [ ! -f "$f" ]; then echo "MISSING: $f"; missing=1; fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "Some files are not where the build expects them. This is what is at the top level:"; ls -la
+            exit 1
+          fi
+          echo "All files in place."
+
+      - name: Build the sound checks
+        run: g++ -std=c++17 -O2 -Wall -Wextra tests/tests.cpp -o tumbotests
+
+      - name: Run the sound checks
+        run: |
+          ./tumbotests . | tee results.txt
+          {
+            echo "## TUMBO sound checks"
+            echo '```'
+            cat results.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -q "0 failed" results.txt
+
+      - name: Save audio preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tumbo-preview
+          path: tumbo_preview.wav
+
+  build-mac:
+    needs: check
+    runs-on: macos-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Configure (Apple Silicon + Intel)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build VST3
+        run: cmake --build build --config Release --target tumbo_VST3 -j 4
+
+      - name: Sign for local use and zip
+        run: |
+          cd "build/tumbo_artefacts/Release/VST3"
+          codesign --force --deep --sign - "TUMBO.vst3"
+          ditto -c -k --keepParent "TUMBO.vst3" "$GITHUB_WORKSPACE/tumbo-vst3-mac.zip"
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: tumbo-vst3-mac
+          path: tumbo-vst3-mac.zip
