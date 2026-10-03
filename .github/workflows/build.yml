@@ -14,7 +14,7 @@ jobs:
       - name: Check the files are in place
         run: |
           missing=0
-          for f in CMakeLists.txt source/plugin_processor.cpp source/plugin_processor.h source/plugin_editor.cpp source/plugin_editor.h source/presets.h source/dsp/engine.h source/dsp/whisper_bank.h fonts/BigShouldersDisplay-ExtraBold.ttf fonts/IBMPlexMono-Regular.ttf tests/tests.cpp; do
+          for f in CMakeLists.txt source/plugin_processor.cpp source/plugin_processor.h source/plugin_editor.cpp source/plugin_editor.h source/ui_look.h resources/fonts/Archivo-Regular.ttf source/preset_manager.cpp source/preset_manager.h source/dsp/engine.h source/dsp/presets.h tests/tests.cpp; do
             if [ ! -f "$f" ]; then echo "MISSING: $f"; missing=1; fi
           done
           if [ "$missing" = "1" ]; then
@@ -24,25 +24,35 @@ jobs:
           echo "All files in place."
 
       - name: Build the sound checks
-        run: g++ -std=c++17 -O2 -Wall -Wextra tests/tests.cpp -o tumbotests
+        run: g++ -std=c++17 -O2 -Wall -Wextra tests/tests.cpp -o mazotests
 
       - name: Run the sound checks
         run: |
-          ./tumbotests . | tee results.txt
+          ./mazotests . | tee results.txt
           {
-            echo "## TUMBO sound checks"
+            echo "## MAZO sound checks"
             echo '```'
             cat results.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -q "0 failed" results.txt
+          grep -q " 0 failed" results.txt
+
+      - name: Make the preview an MP3
+        if: always()
+        continue-on-error: true
+        run: |
+          if ! command -v ffmpeg > /dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
+          ffmpeg -loglevel error -y -i mazo_preview.wav -codec:a libmp3lame -b:a 192k mazo_preview.mp3
 
       - name: Save audio preview
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tumbo-preview
-          path: tumbo_preview.wav
+          name: mazo-preview
+          path: |
+            mazo_preview.mp3
+            mazo_preview.wav
+          if-no-files-found: ignore
 
   build-mac:
     needs: check
@@ -55,16 +65,16 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       - name: Build VST3
-        run: cmake --build build --config Release --target tumbo_VST3 -j 4
+        run: cmake --build build --config Release --target mazo_VST3 -j 4
 
       - name: Sign for local use and zip
         run: |
-          cd "build/tumbo_artefacts/Release/VST3"
-          codesign --force --deep --sign - "TUMBO.vst3"
-          ditto -c -k --keepParent "TUMBO.vst3" "$GITHUB_WORKSPACE/tumbo-vst3-mac.zip"
+          cd "build/mazo_artefacts/Release/VST3"
+          codesign --force --deep --sign - "MAZO.vst3"
+          ditto -c -k --keepParent "MAZO.vst3" "$GITHUB_WORKSPACE/mazo-vst3-mac.zip"
 
       - name: Upload plugin
         uses: actions/upload-artifact@v4
         with:
-          name: tumbo-vst3-mac
-          path: tumbo-vst3-mac.zip
+          name: mazo-vst3-mac
+          path: mazo-vst3-mac.zip
